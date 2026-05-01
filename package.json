@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@astrojs/svelte": "^8.1.0",
-    "@astrojs/tailwind": "^6.0.2",
     "@mlc-ai/web-llm": "^0.2.83",
     "@tailwindcss/postcss": "^4.2.4",
     "@threlte/core": "^8.5.11",
