@@ -16,7 +16,12 @@
   let prompt = $state('');
   let selectedTheme = $state(DEFAULT_THEME);
   let webllmProgress = $state('');
-  let view = $state<'library' | 'create' | 'preview' | 'detail' | 'gallery'>('library');
+  // Check URL params immediately to set initial view before first render
+  const _initParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const _wantsNew = _initParams?.has('new') ?? false;
+  const _hasPrompt = !!_initParams?.get('prompt');
+
+  let view = $state<'library' | 'new' | 'create' | 'preview' | 'detail' | 'gallery'>(_wantsNew || _hasPrompt ? 'new' : 'library');
   let placeholderText = $state('Describe an app you want to create...');
   let placeholderIndex = $state(0);
   let placeholderInterval: ReturnType<typeof setInterval> | null = null;
@@ -87,7 +92,7 @@
       return 'The AI is taking a break. Try again in a moment.';
     if (lower.includes('failed to fetch') || lower.includes('network'))
       return "Can't reach the AI. Check your internet connection.";
-    return 'Something went wrong. Try again or switch providers in settings.';
+    return `Something went wrong: ${msg.slice(0, 200)}`;
   }
 
   function dismissError() {
@@ -164,11 +169,18 @@
     // Check for prompt from URL params (landing page redirect)
     const urlParams = new URLSearchParams(window.location.search);
     const urlPrompt = urlParams.get('prompt');
+    const wantsNew = urlParams.has('new');
+    // Clean URL params
+    if (urlPrompt || wantsNew) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     if (urlPrompt) {
       prompt = urlPrompt;
-      // Clean URL
-      window.history.replaceState({}, '', window.location.pathname);
+      view = 'create';
       handleGenerate();
+    } else if (wantsNew) {
+      view = 'new';
+      setTimeout(() => promptInputRef?.focus(), 200);
     }
 
     startPlaceholderRotation();
@@ -231,7 +243,7 @@
       }, 1000);
     } catch (e: any) {
       stopLivePreview();
-      // UX: Show human-friendly inline error instead of alert
+      console.error('[Mint AI] Generation error:', e);
       errorMessage = humanizeError(e.message || String(e));
     }
     finally { isGenerating.set(false); prompt = ''; }
@@ -254,7 +266,11 @@
     }
   }
   function saveSettings() {
-    providerConfig.set({ provider: settingsProvider as any, apiKey: settingsApiKey, model: settingsModel, baseUrl: settingsBaseUrl });
+    // Ensure model and baseUrl are set to defaults if empty
+    const defaults = getDefaults(settingsProvider);
+    const model = settingsModel || defaults.model;
+    const baseUrl = settingsBaseUrl || defaults.baseUrl;
+    providerConfig.set({ provider: settingsProvider as any, apiKey: settingsApiKey, model, baseUrl });
     showSettings = false;
   }
   function handleKeydown(e: KeyboardEvent) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }
@@ -270,92 +286,110 @@
 {#if showToast}
   <div class="toast-container" role="status" aria-live="polite">
     <div class="toast-content">
-      <svg class="w-4 h-4 text-green-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      <span class="text-sm text-gray-800 font-medium">{toastMessage}</span>
+      <svg class="w-4 h-4 text-mint-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <span class="text-sm text-white font-medium">{toastMessage}</span>
     </div>
   </div>
 {/if}
 
-<!-- Navigation -->
-<nav class="fixed top-0 left-0 right-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800/50">
-  <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-    <button onclick={() => newApp()} class="flex items-center gap-2 hover:opacity-80 transition-opacity">
-      <svg class="w-5 h-5 text-mint-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8C8 10 5.9 16.17 3.82 21.34l1.89-.82L7 21l-1-3.5C9.5 13 14 9 17 8z"/><path d="M17 8c-4 1-7 4-8.5 7.5"/></svg>
-      <span class="font-semibold text-lg text-zinc-100 tracking-tight">Mint AI</span>
+<!-- Navigation — floating pill matching landing page -->
+<nav class="fixed top-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-4xl">
+  <div class="flex items-center justify-between h-14 px-5 sm:px-6 rounded-full border border-mint-500/[0.12] bg-[rgba(15,15,15,0.85)] backdrop-blur-xl" style="box-shadow:0 0 30px rgba(16,185,129,0.04),0 4px 20px rgba(0,0,0,0.3)">
+    <button type="button" onclick={() => newApp()} class="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer">
+      <svg class="w-5 h-5 text-mint-400" viewBox="0 0 32 32" fill="none">
+        <path d="M16 4C10 8 6 14 6 20c0 4 2.5 7 6 8 1.5.4 3 .2 4-1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M16 4c6 4 10 10 10 16 0 4-2.5 7-6 8-1.5.4-3 .2-4-1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M16 4v23" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
+      </svg>
+      <span class="text-[15px] font-semibold text-white tracking-tight">Mint AI</span>
     </button>
-    <div class="flex items-center gap-1">
-      <button onclick={() => newApp()} class="text-sm text-zinc-400 hover:text-zinc-100 transition-colors px-3 py-1.5 rounded-lg hover:bg-zinc-800">Library</button>
-      <button onclick={showGalleryView} class="text-sm text-zinc-400 hover:text-zinc-100 transition-colors px-3 py-1.5 rounded-lg hover:bg-zinc-800">Gallery</button>
-      <button onclick={() => { showSettings = !showSettings }} class="text-zinc-500 hover:text-zinc-100 transition-colors p-2 rounded-lg hover:bg-zinc-800" aria-label="Settings">
-        <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <div class="flex items-center gap-1 sm:gap-3">
+      <button type="button" onclick={() => { view = 'new'; currentApp.set(null); }} class="text-[13px] text-white/55 hover:text-white transition-colors px-2.5 py-1.5 rounded-lg hover:bg-white/[0.05] cursor-pointer">New</button>
+      <button type="button" onclick={() => { view = 'library'; }} class="text-[13px] text-white/55 hover:text-white transition-colors px-2.5 py-1.5 rounded-lg hover:bg-white/[0.05] cursor-pointer">Library</button>
+      <button type="button" onclick={() => { showGalleryView(); }} class="text-[13px] text-white/55 hover:text-white transition-colors px-2.5 py-1.5 rounded-lg hover:bg-white/[0.05] cursor-pointer">Gallery</button>
+      <button type="button" onclick={() => { showOnboarding = true; }} class="text-white/40 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/[0.05] cursor-pointer" aria-label="Help" title="Setup guide">
+        <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </button>
+      <button type="button" onclick={() => { showSettings = !showSettings; }} class="text-white/40 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/[0.05] cursor-pointer" aria-label="Settings">
+        <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
     </div>
   </div>
 </nav>
 
-<!-- UX: Error Banner (between nav and main content) -->
+<!-- Error Banner -->
 {#if errorMessage}
-  <div class="fixed top-14 left-0 right-0 z-40 animate-fade-in">
-    <div class="max-w-6xl mx-auto px-4 pt-2">
-      <div class="error-banner flex items-center justify-between gap-3 px-4 py-3 rounded-xl">
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-red-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-          <span class="text-sm text-red-800">{errorMessage}</span>
-        </div>
-        <button onclick={dismissError} class="text-red-400 hover:text-red-600 text-sm p-1 rounded hover:bg-red-100 transition-colors shrink-0" aria-label="Dismiss error">&times;</button>
+  <div class="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-xl animate-fade-in">
+    <div class="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-red-500/20" style="background:rgba(127,29,29,0.15);backdrop-filter:blur(12px)">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-red-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        <span class="text-sm text-red-300">{errorMessage}</span>
       </div>
+      <button onclick={dismissError} class="text-red-400 hover:text-red-300 text-lg p-1 rounded transition-colors shrink-0" aria-label="Dismiss error">&times;</button>
     </div>
   </div>
 {/if}
 
 <!-- Settings Modal -->
 {#if showSettings}
-  <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm" role="dialog" aria-label="Provider settings">
-    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4 animate-slide-up">
+  <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-label="Provider settings">
+    <div class="rounded-2xl p-6 w-full max-w-md mx-4 animate-slide-up border border-white/[0.08]" style="background:rgba(15,15,15,0.95);backdrop-filter:blur(24px)">
       <div class="flex items-center justify-between mb-5">
-        <h2 class="text-lg font-semibold text-zinc-100">Provider Settings</h2>
-        <button onclick={() => { showSettings = false }} class="text-zinc-500 hover:text-zinc-100 p-2 rounded-lg hover:bg-zinc-800 transition-colors" aria-label="Close settings">
-          <span class="text-sm">&times;</span>
+        <h2 class="text-lg font-semibold text-white">Provider Settings</h2>
+        <button onclick={() => { showSettings = false }} class="text-white/40 hover:text-white p-2 rounded-lg hover:bg-white/[0.05] transition-colors" aria-label="Close settings">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       </div>
-      <label class="block mb-3"><span class="text-sm text-zinc-400">Provider</span>
-        <select bind:value={settingsProvider} class="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-zinc-100 focus:border-mint-400 focus:ring-1 focus:ring-mint-400/20 outline-none">
-          <option value="webllm">Browser AI (Free)</option><option value="deepseek">DeepSeek</option>
+      <label class="block mb-3"><span class="text-sm text-white/50">Provider</span>
+        <select bind:value={settingsProvider} class="mt-1 w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-mint-500/40 focus:ring-1 focus:ring-mint-500/20 outline-none">
+          <option value="groq">⚡ Groq (Free tier — blazing fast)</option>
+          <option value="puter">🌐 Puter (Free — Claude, GPT, DeepSeek)</option>
+          <option value="deepseek">DeepSeek (Recommended — near-free)</option>
           <option value="openai">OpenAI</option><option value="anthropic">Anthropic</option>
-          <option value="ollama">Ollama (Local)</option><option value="custom">Custom</option>
+          <option value="ollama">Ollama (Local)</option>
+          <option value="webllm">Browser AI (Offline — simpler apps)</option>
+          <option value="custom">Custom</option>
         </select>
+        {#if settingsProvider === 'puter'}
+          <p class="text-[11px] text-mint-400/70 mt-1.5">No API key needed. Uses your free Puter account for Claude/GPT access.</p>
+        {:else if settingsProvider === 'groq'}
+          <p class="text-[11px] text-white/30 mt-1.5">Get a free API key at <a href="https://console.groq.com" target="_blank" class="text-mint-400/70 hover:text-mint-400">console.groq.com</a></p>
+        {:else if settingsProvider === 'deepseek'}
+          <p class="text-[11px] text-white/30 mt-1.5">~$0.001 per app. Get key at <a href="https://platform.deepseek.com" target="_blank" class="text-mint-400/70 hover:text-mint-400">platform.deepseek.com</a></p>
+        {:else if settingsProvider === 'webllm'}
+          <p class="text-[11px] text-white/30 mt-1.5">Runs in your browser. No cost, but generates simpler apps.</p>
+        {/if}
       </label>
-      {#if settingsProvider !== 'webllm'}
-        <label class="block mb-3"><span class="text-sm text-zinc-400">API Key</span>
-          <input type="password" bind:value={settingsApiKey} placeholder="sk-..." class="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-zinc-100 focus:border-mint-400 focus:ring-1 focus:ring-mint-400/20 outline-none" />
+      {#if settingsProvider !== 'webllm' && settingsProvider !== 'puter'}
+        <label class="block mb-3"><span class="text-sm text-white/50">API Key</span>
+          <input type="password" bind:value={settingsApiKey} placeholder="sk-..." class="mt-1 w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-mint-500/40 focus:ring-1 focus:ring-mint-500/20 outline-none" />
         </label>
       {/if}
-      <label class="block mb-3"><span class="text-sm text-zinc-400">Model</span>
-        <input bind:value={settingsModel} class="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-zinc-100 focus:border-mint-400 focus:ring-1 focus:ring-mint-400/20 outline-none" />
+      <label class="block mb-3"><span class="text-sm text-white/50">Model</span>
+        <input bind:value={settingsModel} class="mt-1 w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-mint-500/40 focus:ring-1 focus:ring-mint-500/20 outline-none" />
       </label>
-      {#if settingsProvider !== 'webllm'}
-        <label class="block mb-4"><span class="text-sm text-zinc-400">Base URL</span>
-          <input bind:value={settingsBaseUrl} class="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-zinc-100 focus:border-mint-400 focus:ring-1 focus:ring-mint-400/20 outline-none" />
+      {#if settingsProvider !== 'webllm' && settingsProvider !== 'puter' && settingsProvider !== 'groq'}
+        <label class="block mb-4"><span class="text-sm text-white/50">Base URL</span>
+          <input bind:value={settingsBaseUrl} class="mt-1 w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-mint-500/40 focus:ring-1 focus:ring-mint-500/20 outline-none" />
         </label>
       {/if}
       <div class="flex gap-3 mt-5">
-        <button onclick={saveSettings} class="flex-1 bg-mint-500 hover:bg-mint-600 text-black font-medium rounded-full py-2.5 text-sm transition-colors">Save</button>
-        <button onclick={() => { showSettings = false }} class="flex-1 bg-gray-100 hover:bg-zinc-700 text-gray-700 rounded-full py-2.5 text-sm transition-colors">Cancel</button>
+        <button type="button" onclick={saveSettings} class="flex-1 bg-mint-500 hover:bg-mint-400 text-white font-medium rounded-full py-2.5 text-sm transition-colors shadow-lg shadow-mint-500/20">Save</button>
+        <button type="button" onclick={() => { showSettings = false }} class="flex-1 bg-white/[0.05] hover:bg-white/[0.08] text-white/70 rounded-full py-2.5 text-sm transition-colors border border-white/[0.06]">Cancel</button>
       </div>
     </div>
   </div>
 {/if}
 
-<main class="pt-14 pb-24 min-h-screen" class:pt-[4.5rem]={!!errorMessage}>
+<main class="pt-20 pb-28 min-h-screen" class:pt-24={!!errorMessage}>
 
   <!-- Library View -->
   {#if view === 'library'}
     <div class="max-w-6xl mx-auto px-4 py-8 animate-fade-in">
       {#if $apps.length === 0}
         <div class="flex flex-col items-center justify-center min-h-[60vh] text-center">
-          <svg class="w-12 h-12 text-mint-400 mb-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8C8 10 5.9 16.17 3.82 21.34l1.89-.82L7 21l-1-3.5C9.5 13 14 9 17 8z"/><path d="M17 8c-4 1-7 4-8.5 7.5"/></svg>
-          <h1 class="text-3xl sm:text-4xl font-bold mb-3 text-gradient tracking-tight">{getGreeting()}</h1>
-          <p class="text-zinc-400 max-w-md mb-8 leading-relaxed">What would you like to build today?</p>
+          <h1 class="font-display text-4xl sm:text-5xl mb-3 text-white tracking-tight">{getGreeting()}</h1>
+          <p class="text-white/40 max-w-md mb-10 leading-relaxed font-light">What would you like to build today?</p>
           <div class="flex flex-wrap gap-2 justify-center max-w-lg">
             {#each [
               'A workout tracker that shows muscle groups on a body diagram',
@@ -364,37 +398,37 @@
               'A recipe scaler for dinner parties',
               'A habit tracker with daily streaks and heatmap',
             ] as s}
-              <button onclick={() => { prompt = s; handleGenerate(); }} class="text-sm px-4 py-2.5 rounded-full glass border border-zinc-800 text-zinc-400 hover:text-mint-400 hover:border-mint-500/30 hover:bg-mint-500/10 transition-all duration-300 shadow-sm hover:shadow-md">{s}</button>
+              <button onclick={() => { prompt = s; handleGenerate(); }} class="text-sm px-4 py-2.5 rounded-full border border-white/[0.06] bg-white/[0.02] text-white/50 hover:text-mint-400 hover:border-mint-500/30 hover:bg-mint-500/[0.06] transition-all duration-300">{s}</button>
             {/each}
           </div>
         </div>
       {:else}
-        <h2 class="text-xl font-semibold text-zinc-100 mb-4 tracking-tight">Your Apps</h2>
+        <h2 class="text-xl font-semibold text-white mb-4 tracking-tight">Your Apps</h2>
         <SearchFilter apps={$apps} onFilteredApps={(f) => { filteredApps = f; }} />
         {#if filteredApps.length === 0}
           <div class="flex flex-col items-center py-16 text-center">
-            <p class="text-sm text-zinc-500">No apps match your search.</p>
+            <p class="text-sm text-white/40">No apps match your search.</p>
           </div>
         {:else}
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-5">
             {#each filteredApps as app (app.id)}
-              <div role="button" tabindex="0" onclick={() => openApp(app)} onkeydown={(e) => e.key === 'Enter' && openApp(app)} class="glass rounded-2xl overflow-hidden text-left group cursor-pointer glass hover:border-zinc-700 transition-all duration-300">
+              <div role="button" tabindex="0" onclick={() => openApp(app)} onkeydown={(e) => e.key === 'Enter' && openApp(app)} class="rounded-2xl overflow-hidden text-left group cursor-pointer border border-white/[0.05] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.03] transition-all duration-300 hover:shadow-xl hover:shadow-black/20">
                 {#if app.thumbnail}
                   <img src={app.thumbnail} alt="" class="w-full h-36 object-cover" />
                 {:else}
-                  <div class="w-full h-36 bg-gradient-to-br from-mint-50 via-cream-100 to-cream-200 flex items-center justify-center">
-                    <span class="text-2xl text-zinc-500 group-hover:text-mint-300 transition-colors duration-300">{app.title.charAt(0)}</span>
+                  <div class="w-full h-36 bg-gradient-to-br from-mint-500/[0.06] via-transparent to-blue-500/[0.04] flex items-center justify-center">
+                    <span class="text-3xl text-white/15 group-hover:text-mint-400/40 transition-colors duration-300">{app.title.charAt(0)}</span>
                   </div>
                 {/if}
                 <div class="p-4">
                   <div class="flex items-start justify-between mb-1">
-                    <h3 class="font-medium text-zinc-100 group-hover:text-mint-400 transition-colors truncate pr-2">{app.title}</h3>
-                    <button onclick={(e) => { e.stopPropagation(); handleDelete(app.id); }} class="text-zinc-400 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-all p-1 rounded" aria-label="Delete {app.title}">&times;</button>
+                    <h3 class="font-medium text-white group-hover:text-mint-400 transition-colors truncate pr-2">{app.title}</h3>
+                    <button onclick={(e) => { e.stopPropagation(); handleDelete(app.id); }} class="text-white/30 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-all p-1 rounded" aria-label="Delete {app.title}">&times;</button>
                   </div>
-                  <p class="text-sm text-zinc-500 line-clamp-2 mb-3">{app.description}</p>
+                  <p class="text-sm text-white/40 line-clamp-2 mb-3">{app.description}</p>
                   <div class="flex items-center justify-between">
-                    <div class="flex gap-1.5">{#each app.tags.slice(0,3) as tag}<span class="text-[10px] px-2 py-0.5 rounded-full bg-mint-500/10 text-mint-400">{tag}</span>{/each}</div>
-                    <span class="text-[10px] text-zinc-500">{timeAgo(app.updatedAt)}</span>
+                    <div class="flex gap-1.5">{#each app.tags.slice(0,3) as tag}<span class="text-[10px] px-2 py-0.5 rounded-full border border-mint-500/15 text-mint-400/70">{tag}</span>{/each}</div>
+                    <span class="text-[10px] text-white/25">{timeAgo(app.updatedAt)}</span>
                   </div>
                 </div>
               </div>
@@ -402,6 +436,32 @@
           </div>
         {/if}
       {/if}
+    </div>
+  {/if}
+
+  <!-- New/Create View — always shows prompt suggestions -->
+  {#if view === 'new'}
+    <div class="max-w-6xl mx-auto px-4 py-8 animate-fade-in">
+      <div class="flex flex-col items-center justify-center min-h-[60vh] text-center">
+        <h1 class="font-display text-4xl sm:text-5xl mb-3 text-white tracking-tight">{getGreeting()}</h1>
+        <p class="text-white/40 max-w-md mb-10 leading-relaxed font-light">What would you like to build today?</p>
+        <div class="flex flex-wrap gap-2 justify-center max-w-lg">
+          {#each [
+            'A workout tracker that shows muscle groups on a body diagram',
+            'A budget app with spending pie charts and monthly trends',
+            'A flashcard quiz that tracks your learning streaks',
+            'A recipe scaler for dinner parties',
+            'A habit tracker with daily streaks and heatmap',
+          ] as s}
+            <button onclick={() => { prompt = s; handleGenerate(); }} class="text-sm px-4 py-2.5 rounded-full border border-white/[0.06] bg-white/[0.02] text-white/50 hover:text-mint-400 hover:border-mint-500/30 hover:bg-mint-500/[0.06] transition-all duration-300">{s}</button>
+          {/each}
+        </div>
+        {#if $apps.length > 0}
+          <button onclick={() => { view = 'library'; }} class="mt-8 text-sm text-white/30 hover:text-white/60 transition-colors">
+            ← Back to library ({$apps.length} app{$apps.length === 1 ? '' : 's'})
+          </button>
+        {/if}
+      </div>
     </div>
   {/if}
 
@@ -413,20 +473,20 @@
   <!-- Gallery View -->
   {#if view === 'gallery'}
     <div class="max-w-6xl mx-auto px-4 py-8 animate-fade-in">
-      <h2 class="text-xl font-semibold text-zinc-100 mb-2 tracking-tight">Gallery</h2>
-      <p class="text-sm text-zinc-400 mb-6">Curated demo apps. Fork any into your library.</p>
+      <h2 class="text-xl font-semibold text-white mb-2 tracking-tight">Gallery</h2>
+      <p class="text-sm text-white/40 mb-6">Curated demo apps. Fork any into your library.</p>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {#each galleryApps as g (g.id)}
-          <div class="glass rounded-2xl overflow-hidden group glass hover:border-zinc-700 transition-all duration-300">
-            <div class="w-full h-36 bg-gradient-to-br from-mint-50 via-cream-100 to-cream-200 flex items-center justify-center">
-              <span class="text-3xl text-zinc-500 group-hover:text-mint-300 transition-colors duration-300">{g.title.charAt(0)}</span>
+          <div class="rounded-2xl overflow-hidden group border border-white/[0.05] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.03] transition-all duration-300">
+            <div class="w-full h-36 bg-gradient-to-br from-mint-500/[0.06] via-transparent to-blue-500/[0.04] flex items-center justify-center">
+              <span class="text-3xl text-white/15 group-hover:text-mint-400/40 transition-colors duration-300">{g.title.charAt(0)}</span>
             </div>
             <div class="p-4">
-              <h3 class="font-medium text-zinc-100 mb-1">{g.title}</h3>
-              <p class="text-sm text-zinc-500 line-clamp-2 mb-3">{g.description}</p>
+              <h3 class="font-medium text-white mb-1">{g.title}</h3>
+              <p class="text-sm text-white/40 line-clamp-2 mb-3">{g.description}</p>
               <div class="flex items-center justify-between">
-                <div class="flex gap-1.5">{#each g.tags.slice(0,3) as tag}<span class="text-[10px] px-2 py-0.5 rounded-full bg-mint-500/10 text-mint-400">{tag}</span>{/each}</div>
-                <button onclick={() => handleGalleryFork(g)} class="text-xs text-mint-400 hover:text-mint-400 px-3 py-1.5 rounded-lg hover:bg-mint-500/10 transition-all font-medium">Fork</button>
+                <div class="flex gap-1.5">{#each g.tags.slice(0,3) as tag}<span class="text-[10px] px-2 py-0.5 rounded-full border border-mint-500/15 text-mint-400/70">{tag}</span>{/each}</div>
+                <button onclick={() => handleGalleryFork(g)} class="text-xs text-mint-400 hover:text-mint-300 px-3 py-1.5 rounded-lg hover:bg-mint-500/[0.08] transition-all font-medium">Fork</button>
               </div>
             </div>
           </div>
@@ -447,11 +507,11 @@
       <div class="split-view">
         <!-- Left: Streaming code -->
         <div class="split-view-code">
-          <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-800/50">
+          <div class="flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.04]">
             <div class="w-2 h-2 rounded-full bg-mint-500 animate-pulse"></div>
-            <span class="text-xs text-zinc-500 font-medium">Building your app...</span>
+            <span class="text-xs text-white/40 font-medium">Building your app...</span>
           </div>
-          <pre class="font-mono text-xs text-zinc-400 p-4 flex-1 overflow-auto whitespace-pre-wrap break-words">{$streamContent}</pre>
+          <pre class="font-mono text-xs p-4 flex-1 overflow-auto whitespace-pre-wrap break-words text-white/35">{$streamContent}</pre>
         </div>
         <!-- Right: Live preview -->
         <div class="split-view-preview">
@@ -472,34 +532,34 @@
   {#if view === 'preview'}
     <div class="h-[calc(100vh-3.5rem-6rem)] animate-fade-in">
       <div class="h-full flex flex-col">
-        <div class="flex items-center justify-between px-4 py-2 bg-zinc-900/80 border-b border-zinc-800">
+        <div class="flex items-center justify-between px-4 py-2 border-b border-white/[0.06]" style="background:rgba(10,10,10,0.9)">
           <div class="flex items-center gap-3">
-            <button onclick={newApp} class="text-zinc-400 hover:text-zinc-100 text-sm transition-colors px-2 py-1.5 rounded-lg hover:bg-zinc-800">&larr; Back</button>
-            <span class="text-sm font-medium text-zinc-100">{$currentApp?.title ?? 'Preview'}</span>
+            <button onclick={newApp} class="text-white/50 hover:text-white text-sm transition-colors px-2 py-1.5 rounded-lg hover:bg-white/[0.05]">&larr; Back</button>
+            <span class="text-sm font-medium text-white">{$currentApp?.title ?? 'Preview'}</span>
           </div>
           <div class="flex items-center gap-1">
-            <button onclick={async () => { if ($currentApp) { const { downloadHtml } = await import('../lib/sharing/encode'); downloadHtml($currentApp.html, $currentApp.title); } }} class="text-xs text-zinc-400 hover:text-zinc-100 px-3 py-1.5 rounded-lg hover:bg-zinc-800 transition-all">&darr; Export</button>
-            <button onclick={() => window.open('data:text/html;charset=utf-8,' + encodeURIComponent(previewHtml), '_blank')} class="text-xs text-zinc-400 hover:text-zinc-100 px-3 py-1.5 rounded-lg hover:bg-zinc-800 transition-all">Fullscreen</button>
+            <button onclick={async () => { if ($currentApp) { const { downloadHtml } = await import('../lib/sharing/encode'); downloadHtml($currentApp.html, $currentApp.title); } }} class="text-xs text-white/50 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/[0.05] transition-all">&darr; Export</button>
+            <button onclick={() => { const html = $currentApp?.html || previewHtml; if (html) window.open('data:text/html;charset=utf-8,' + encodeURIComponent(html), '_blank'); }} class="text-xs text-white/50 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/[0.05] transition-all">Fullscreen</button>
           </div>
         </div>
-        <iframe bind:this={iframeRef} srcdoc={previewHtml} sandbox="allow-scripts allow-same-origin allow-modals allow-forms" class="flex-1 w-full bg-zinc-900 rounded-b-lg" title="App preview"></iframe>
+        <iframe bind:this={iframeRef} srcdoc={$currentApp?.html || previewHtml} sandbox="allow-scripts allow-same-origin allow-modals allow-forms" class="flex-1 w-full bg-white rounded-b-lg" title="App preview"></iframe>
       </div>
     </div>
   {/if}
 </main>
 
 <!-- Prompt Bar -->
-<div class="fixed bottom-0 left-0 right-0 z-50 p-4 bg-gradient-to-t from-zinc-950 via-zinc-950/95 to-transparent">
+<div class="fixed bottom-0 left-0 right-0 z-50 p-4" style="background:linear-gradient(to top,#050505 60%,transparent)">
   <div class="max-w-2xl mx-auto">
-    <div class="bg-white rounded-2xl border border-zinc-800 shadow-sm focus-within:border-mint-400 focus-within:glow-mint transition-all duration-300 {$isGenerating ? 'shimmer' : ''}">
-      <!-- Theme picker (only when creating new app) -->
+    <div class="rounded-2xl border border-white/[0.08] shadow-2xl shadow-black/40 focus-within:border-mint-500/30 transition-all duration-300 {$isGenerating ? 'shimmer' : ''}" style="background:rgba(15,15,15,0.9);backdrop-filter:blur(24px)">
+      <!-- Theme picker -->
       {#if !$currentApp && !$isGenerating}
         <div class="flex items-center gap-1.5 px-4 pt-3 pb-1 overflow-x-auto">
-          <span class="text-[10px] text-zinc-500 shrink-0 mr-1">Theme</span>
+          <span class="text-[10px] text-white/30 shrink-0 mr-1">Theme</span>
           {#each THEMES as theme (theme.id)}
             <button
               onclick={() => { selectedTheme = theme.id; }}
-              class="text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap transition-all {selectedTheme === theme.id ? 'bg-gray-900 text-white' : 'bg-gray-100 text-zinc-400 hover:bg-zinc-700'}"
+              class="text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap transition-all {selectedTheme === theme.id ? 'bg-mint-500/20 text-mint-400 border border-mint-500/30' : 'bg-white/[0.04] text-white/40 border border-transparent hover:bg-white/[0.06]'}"
               title={theme.description}
             >
               {theme.emoji} {theme.name}
@@ -508,17 +568,19 @@
         </div>
       {/if}
       <div class="flex items-center gap-3 px-4 py-3">
-        <svg class="w-5 h-5 text-mint-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 17 3.5s-.3 3.5-1.5 6c3-1 5.5-1.5 5.5-1.5s-1 3.5-4 6c1.5.5 3 .5 3 .5s-2 3-6 3c0 1-1 3-3 3"/></svg>
-        <input bind:this={promptInputRef} bind:value={prompt} onkeydown={handleKeydown} onfocus={stopPlaceholderRotation} onblur={startPlaceholderRotation} placeholder={$currentApp ? `Modify "${$currentApp.title}"...` : placeholderText} disabled={$isGenerating} class="flex-1 bg-transparent text-sm text-zinc-100 placeholder-gray-400 outline-none disabled:opacity-50" />
-        <!-- UX: Cmd+K hint on desktop -->
-        <span class="cmdk-hint hidden sm:inline-flex items-center text-[10px] text-zinc-400 border border-zinc-800 rounded px-1.5 py-0.5 font-mono select-none">⌘K</span>
-        <button onclick={handleGenerate} disabled={!prompt.trim() || $isGenerating} class="bg-gray-900 hover:bg-gray-800 disabled:opacity-30 text-white font-medium text-sm px-5 py-2 rounded-full transition-all duration-200">
+        <svg class="w-5 h-5 text-mint-400 shrink-0" viewBox="0 0 32 32" fill="none">
+          <path d="M16 4C10 8 6 14 6 20c0 4 2.5 7 6 8 1.5.4 3 .2 4-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M16 4c6 4 10 10 10 16 0 4-2.5 7-6 8-1.5.4-3 .2-4-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input bind:this={promptInputRef} bind:value={prompt} onkeydown={handleKeydown} onfocus={stopPlaceholderRotation} onblur={startPlaceholderRotation} placeholder={$currentApp ? `Modify "${$currentApp.title}"...` : placeholderText} disabled={$isGenerating} class="flex-1 bg-transparent text-sm text-white placeholder-white/30 outline-none disabled:opacity-50 font-light" />
+        <span class="cmdk-hint hidden sm:inline-flex items-center text-[10px] text-white/25 border border-white/[0.08] rounded px-1.5 py-0.5 font-mono select-none">⌘K</span>
+        <button onclick={handleGenerate} disabled={!prompt.trim() || $isGenerating} class="bg-mint-500 hover:bg-mint-400 disabled:opacity-30 disabled:hover:bg-mint-500 text-white font-medium text-sm px-5 py-2 rounded-full transition-all duration-200 shadow-lg shadow-mint-500/20">
           {$isGenerating ? '...' : $currentApp ? 'Modify' : 'Create'}
         </button>
       </div>
     </div>
     {#if !$isGenerating}
-      <p class="text-center text-[10px] text-zinc-500 mt-2">Apps run locally. Your data never leaves your device.</p>
+      <p class="text-center text-[10px] text-white/20 mt-2">Apps run locally. Your data never leaves your device.</p>
     {/if}
   </div>
 </div>
@@ -529,7 +591,7 @@
   /* UX: Toast notification */
   .toast-container {
     position: fixed;
-    top: 20px;
+    top: 24px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 100;
@@ -539,26 +601,21 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    background: white;
-    border: 1px solid #e5e7eb;
+    background: rgba(15, 15, 15, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
     padding: 10px 18px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(16px);
   }
   @keyframes toast-in {
     from { opacity: 0; transform: translateX(-50%) translateY(-12px); }
     to { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 
-  /* UX: Error banner */
-  .error-banner {
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-  }
-
-  /* UX: Split-view generating layout */
+  /* Split-view */
   .split-view-container {
-    height: calc(100vh - 3.5rem - 6rem);
+    height: calc(100vh - 5rem - 7rem);
     padding: 0 1rem;
     display: flex;
     flex-direction: column;
@@ -568,14 +625,14 @@
     flex: 1;
     min-height: 0;
     gap: 0;
-    border-radius: 12px;
+    border-radius: 16px;
     overflow: hidden;
-    border: 1px solid #e5e7eb;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   }
   .split-view-code {
     width: 40%;
-    background: #111;
+    background: #0a0a0a;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -583,34 +640,16 @@
   .split-view-preview {
     width: 60%;
     background: #fff;
-    border-left: 1px solid #e5e7eb;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
     min-height: 0;
   }
 
-  /* UX: Mobile stacking for split view */
   @media (max-width: 767px) {
-    .split-view {
-      flex-direction: column;
-    }
-    .split-view-code {
-      width: 100%;
-      height: 40%;
-    }
-    .split-view-preview {
-      width: 100%;
-      height: 60%;
-      border-left: none;
-      border-top: 1px solid #e5e7eb;
-    }
+    .split-view { flex-direction: column; }
+    .split-view-code { width: 100%; height: 40%; }
+    .split-view-preview { width: 100%; height: 60%; border-left: none; border-top: 1px solid rgba(255, 255, 255, 0.06); }
   }
 
-  /* UX: Cmd+K hint styling */
-  .cmdk-hint {
-    display: none;
-  }
-  @media (min-width: 640px) {
-    .cmdk-hint {
-      display: inline-flex;
-    }
-  }
+  .cmdk-hint { display: none; }
+  @media (min-width: 640px) { .cmdk-hint { display: inline-flex; } }
 </style>

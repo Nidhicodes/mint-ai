@@ -26,7 +26,7 @@ export interface Message {
 }
 
 export interface ProviderConfig {
-  provider: 'deepseek' | 'openai' | 'anthropic' | 'ollama' | 'webllm' | 'custom';
+  provider: 'deepseek' | 'openai' | 'anthropic' | 'ollama' | 'groq' | 'puter' | 'webllm' | 'custom';
   apiKey: string;
   model: string;
   baseUrl: string;

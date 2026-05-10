@@ -42,14 +42,14 @@
 <div class="space-y-3">
   <!-- Search input -->
   <div class="relative">
-    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
     <input
       type="text"
       value={searchInput}
       oninput={(e) => handleInput(e.currentTarget.value)}
       placeholder="Search apps..."
       aria-label="Search apps"
-      class="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-mint-400 focus:ring-1 focus:ring-mint-400/20 transition-all shadow-sm"
+      class="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-mint-500/30 focus:ring-1 focus:ring-mint-500/10 transition-all"
     />
   </div>
 
@@ -60,8 +60,8 @@
         <button
           onclick={() => toggleTag(tag)}
           class="text-xs px-3 py-2 min-h-[44px] rounded-full transition-all duration-200 {selectedTag === tag
-            ? 'bg-mint-50 text-mint-700 border border-mint-300 font-medium'
-            : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:text-gray-700 shadow-sm'}"
+            ? 'bg-mint-500/15 text-mint-400 border border-mint-500/30 font-medium'
+            : 'bg-white/[0.03] text-white/40 border border-white/[0.06] hover:border-white/[0.1] hover:text-white/60'}"
           aria-pressed={selectedTag === tag}
         >
           {tag}
